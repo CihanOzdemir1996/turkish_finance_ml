@@ -117,6 +117,8 @@ pip install -r requirements.txt
 ```
 
 ### Usage
+
+#### Option 1: Run Notebooks
 1. **Run notebooks in sequence** (01 → 05):
    ```bash
    jupyter notebook notebooks/
@@ -131,6 +133,19 @@ pip install -r requirements.txt
 5. **Model Training**: Run `04_model_training.ipynb` to train models
 
 6. **Live Prediction**: Run `05_live_prediction.ipynb` for predictions
+
+#### Option 2: Streamlit Web Dashboard
+Launch the interactive web dashboard:
+```bash
+streamlit run app.py
+```
+
+The dashboard provides:
+- Real-time predictions for next trading day
+- Confidence scores and probability breakdowns
+- Feature importance visualization
+- Model performance metrics
+- Refresh button to get latest predictions
 
 ## 📊 Technical Stack
 
