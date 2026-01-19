@@ -106,12 +106,12 @@ def load_latest_data():
     return latest_features, X_test, y_test_df
 
 @st.cache_data
-def get_feature_importance(model, feature_names):
+def get_feature_importance(_model, feature_names):
     """Get feature importance from the model"""
-    if hasattr(model, 'feature_importances_'):
+    if hasattr(_model, 'feature_importances_'):
         importance_df = pd.DataFrame({
             'Feature': feature_names,
-            'Importance': model.feature_importances_
+            'Importance': _model.feature_importances_
         }).sort_values('Importance', ascending=False)
         return importance_df
     return None
