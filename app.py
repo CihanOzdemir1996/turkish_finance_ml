@@ -121,16 +121,26 @@ def load_model():
     best_model_v2_path = models_dir / "best_model_v2.pkl"
     if best_model_v2_path.exists():
         try:
-            with open(best_model_v2_path, 'r') as f:
+            with open(best_model_v2_path, 'r', encoding='utf-8') as f:
                 model_info = json.load(f)
             
             if model_info.get('model_type') == 'lstm' and PYTORCH_AVAILABLE:
-                lstm_model_path = models_dir / Path(model_info['model_path']).name
+                # Handle both absolute and relative paths for cross-platform compatibility
+                model_path_str = model_info.get('model_path', '')
+                if model_path_str:
+                    # Extract just the filename if it's a full path
+                    model_filename = Path(model_path_str).name
+                    lstm_model_path = models_dir / model_filename
+                else:
+                    # Default fallback
+                    lstm_model_path = models_dir / "lstm_model_v2.pth"
+                
                 model_info_path = models_dir / "lstm_model_info.json"
                 
+                # Check if files exist (cross-platform path handling)
                 if lstm_model_path.exists() and model_info_path.exists():
                     # Load model info
-                    with open(model_info_path, 'r') as f:
+                    with open(model_info_path, 'r', encoding='utf-8') as f:
                         lstm_info = json.load(f)
                     
                     # Create model
@@ -143,8 +153,8 @@ def load_model():
                         dropout=lstm_info['dropout']
                     ).to(device)
                     
-                    # Load weights
-                    model.load_state_dict(torch.load(lstm_model_path, map_location=device))
+                    # Load weights (map_location ensures it works on CPU even if trained on GPU)
+                    model.load_state_dict(torch.load(str(lstm_model_path), map_location=device))
                     model.eval()
                     
                     return {
@@ -152,15 +162,16 @@ def load_model():
                         'model_name': 'LSTM v2.0 (PyTorch)',
                         'model_type': 'lstm',
                         'device': device,
-                        'sequence_length': lstm_info['sequence_length']
+                        'sequence_length': lstm_info.get('sequence_length', 30)
                     }
         except Exception as e:
-            st.warning(f"Could not load LSTM model: {e}. Falling back to XGBoost.")
+            # Silently fall back to XGBoost if LSTM loading fails
+            pass
     
     # Fallback to XGBoost
     xgb_path = models_dir / "xgboost_model.pkl"
     if xgb_path.exists():
-        model = joblib.load(xgb_path)
+        model = joblib.load(str(xgb_path))  # Use str() for cross-platform compatibility
         return {
             'model': model,
             'model_name': 'XGBoost',
@@ -170,7 +181,7 @@ def load_model():
     # Fallback to best model
     best_model_path = models_dir / "best_model.pkl"
     if best_model_path.exists():
-        model = joblib.load(best_model_path)
+        model = joblib.load(str(best_model_path))
         return {
             'model': model,
             'model_name': 'Best Model',
@@ -180,7 +191,7 @@ def load_model():
     # Fallback to Random Forest
     rf_path = models_dir / "random_forest_model.pkl"
     if rf_path.exists():
-        model = joblib.load(rf_path)
+        model = joblib.load(str(rf_path))
         return {
             'model': model,
             'model_name': 'Random Forest',
@@ -195,14 +206,15 @@ def load_latest_data():
     project_root = Path(__file__).parent
     data_processed_dir = project_root / "data" / "processed"
     
-    X_test = pd.read_csv(data_processed_dir / "X_test.csv")
-    y_test_df = pd.read_csv(data_processed_dir / "y_test.csv")
+    # Use str() for cross-platform path compatibility
+    X_test = pd.read_csv(str(data_processed_dir / "X_test.csv"))
+    y_test_df = pd.read_csv(str(data_processed_dir / "y_test.csv"))
     
     # Also load full features for LSTM sequence creation
     full_features_file = data_processed_dir / "bist_features_full.csv"
     full_features = None
     if full_features_file.exists():
-        full_features = pd.read_csv(full_features_file)
+        full_features = pd.read_csv(str(full_features_file))
         full_features['Date'] = pd.to_datetime(full_features['Date'])
         full_features = full_features.sort_values('Date').reset_index(drop=True)
     
@@ -337,7 +349,7 @@ def load_feature_importance_chart():
     
     chart_path = reports_dir / "feature_importance.png"
     if chart_path.exists():
-        return chart_path
+        return str(chart_path)  # Return string for cross-platform compatibility
     return None
 
 # Main application
@@ -347,13 +359,33 @@ def main():
                 unsafe_allow_html=True)
     st.markdown("---")
     
+    # Load model first (must be before using model_dict)
+    try:
+        model_dict = load_model()
+    except FileNotFoundError as e:
+        st.error(f"❌ {str(e)}")
+        st.info("Please ensure you have run the model training notebooks first.")
+        st.stop()
+    except Exception as e:
+        st.error(f"❌ Error loading model: {str(e)}")
+        st.info("Please check that model files exist in the models/ directory.")
+        st.stop()
+    
     # Sidebar
     with st.sidebar:
         st.header("⚙️ Dashboard Settings")
         st.markdown("### Model Information")
         
-        # Model info will be shown after model is loaded in main
-        st.info("Model information will be displayed after loading.")
+        model_name = model_dict['model_name']
+        model_type = model_dict.get('model_type', 'xgboost')
+        st.success(f"✅ Model Loaded: {model_name}")
+        if model_type == 'lstm':
+            st.info(f"Model Type: LSTM (PyTorch)")
+            device_str = str(model_dict.get('device', 'CPU'))
+            st.info(f"Device: {device_str}")
+            st.info(f"Sequence Length: {model_dict.get('sequence_length', 30)} days")
+        else:
+            st.info(f"Model Type: {type(model_dict['model']).__name__}")
         
         st.markdown("---")
         st.markdown("### About")
