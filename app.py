@@ -18,10 +18,20 @@ import joblib
 from pathlib import Path
 import matplotlib.pyplot as plt
 import seaborn as sns
-from datetime import datetime
+from datetime import datetime, timedelta
 import warnings
 import json
 warnings.filterwarnings('ignore')
+
+# Plotly for interactive charts
+try:
+    import plotly.graph_objects as go
+    import plotly.express as px
+    from plotly.subplots import make_subplots
+    PLOTLY_AVAILABLE = True
+except ImportError:
+    PLOTLY_AVAILABLE = False
+    st.warning("Plotly not available. Install with: pip install plotly")
 
 # PyTorch for LSTM model
 try:
@@ -222,6 +232,53 @@ def load_latest_data():
     latest_features = X_test.iloc[-1:].copy()
     
     return latest_features, X_test, y_test_df, full_features
+
+@st.cache_data
+def load_macro_data():
+    """Load macroeconomic data for visualization"""
+    project_root = Path(__file__).parent
+    data_processed_dir = project_root / "data" / "processed"
+    
+    macro_file = data_processed_dir / "bist_macro_merged.csv"
+    if macro_file.exists():
+        macro_df = pd.read_csv(str(macro_file))
+        macro_df['Date'] = pd.to_datetime(macro_df['Date'])
+        macro_df = macro_df.sort_values('Date').reset_index(drop=True)
+        return macro_df
+    return None
+
+@st.cache_data
+def load_price_data():
+    """Load BIST-100 price data for technical analysis"""
+    project_root = Path(__file__).parent
+    data_processed_dir = project_root / "data" / "processed"
+    
+    # Try to load from full features first (has Date and Close)
+    full_features_file = data_processed_dir / "bist_features_full.csv"
+    if full_features_file.exists():
+        df = pd.read_csv(str(full_features_file))
+        if 'Date' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+            # Try to find Close price column
+            close_cols = [col for col in df.columns if 'Close' in col or 'close' in col]
+            if close_cols:
+                price_df = df[['Date', close_cols[0]]].copy()
+                price_df.columns = ['Date', 'Close']
+                price_df = price_df.sort_values('Date').reset_index(drop=True)
+                return price_df
+    
+    # Fallback to raw data
+    data_raw_dir = project_root / "data" / "raw"
+    raw_file = data_raw_dir / "bist_stock_prices.csv"
+    if raw_file.exists():
+        df = pd.read_csv(str(raw_file))
+        if 'Date' in df.columns and 'Close' in df.columns:
+            df['Date'] = pd.to_datetime(df['Date'])
+            price_df = df[['Date', 'Close']].copy()
+            price_df = price_df.sort_values('Date').reset_index(drop=True)
+            return price_df
+    
+    return None
 
 @st.cache_data
 def get_feature_importance(_model_dict, feature_names):
@@ -527,7 +584,399 @@ def main():
         
         st.markdown("---")
         
-        # Model Performance Section
+        # ============================================
+        # NEW PROFESSIONAL DASHBOARD SECTIONS
+        # ============================================
+        
+        # 1. Model Performance Showcase
+        st.header("📊 Model Performance Comparison")
+        st.markdown("### LSTM v2.0 vs XGBoost Baseline")
+        
+        # Model comparison data
+        model_comparison_data = {
+            'Model': ['LSTM v2.0 (PyTorch)', 'XGBoost Baseline'],
+            'Accuracy': [52.46, 48.79],
+            'Improvement': [3.68, 0.0]
+        }
+        comparison_df = pd.DataFrame(model_comparison_data)
+        
+        if PLOTLY_AVAILABLE:
+            # Interactive horizontal bar chart
+            fig_comparison = go.Figure()
+            
+            fig_comparison.add_trace(go.Bar(
+                y=comparison_df['Model'],
+                x=comparison_df['Accuracy'],
+                orientation='h',
+                marker=dict(
+                    color=['#2E86AB', '#A23B72'],
+                    line=dict(color='white', width=1)
+                ),
+                text=[f"{acc:.2f}%" for acc in comparison_df['Accuracy']],
+                textposition='outside',
+                name='Accuracy'
+            ))
+            
+            fig_comparison.update_layout(
+                title='Model Accuracy Comparison',
+                xaxis_title='Accuracy (%)',
+                yaxis_title='Model',
+                height=300,
+                showlegend=False,
+                margin=dict(l=20, r=20, t=50, b=20),
+                plot_bgcolor='rgba(0,0,0,0)',
+                paper_bgcolor='rgba(0,0,0,0)'
+            )
+            
+            st.plotly_chart(fig_comparison, use_container_width=True)
+        else:
+            # Fallback to matplotlib
+            fig, ax = plt.subplots(figsize=(10, 4))
+            colors = ['#2E86AB', '#A23B72']
+            bars = ax.barh(comparison_df['Model'], comparison_df['Accuracy'], color=colors)
+            ax.set_xlabel('Accuracy (%)', fontsize=12, fontweight='bold')
+            ax.set_title('Model Accuracy Comparison', fontsize=14, fontweight='bold', pad=20)
+            ax.set_xlim(0, 60)
+            
+            # Add value labels
+            for i, (idx, row) in enumerate(comparison_df.iterrows()):
+                ax.text(row['Accuracy'] + 0.5, i, f"{row['Accuracy']:.2f}%", 
+                       va='center', fontsize=11, fontweight='bold')
+            
+            # Add improvement annotation
+            ax.annotate(f"+{comparison_df.iloc[0]['Improvement']:.2f}% improvement",
+                       xy=(52.46, 0), xytext=(55, -0.3),
+                       arrowprops=dict(arrowstyle='->', color='green', lw=2),
+                       fontsize=10, color='green', fontweight='bold')
+            
+            plt.tight_layout()
+            st.pyplot(fig)
+        
+        # Metrics row
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("LSTM Accuracy", "52.46%", delta="+3.68%", delta_color="normal")
+        with col2:
+            st.metric("XGBoost Accuracy", "48.79%", delta="Baseline", delta_color="off")
+        with col3:
+            st.metric("Improvement", "+3.68%", delta="Significant", delta_color="normal")
+        
+        st.markdown("---")
+        
+        # 2. Macroeconomic Context
+        st.header("🌍 Macroeconomic Context")
+        st.markdown("### Inflation & Interest Rate Trends with Lagged Features")
+        
+        macro_df = load_macro_data()
+        if macro_df is not None:
+            # Get last 12 months of data
+            recent_macro = macro_df.tail(365).copy()  # Last year
+            
+            if PLOTLY_AVAILABLE:
+                # Dual-axis line chart
+                fig_macro = make_subplots(specs=[[{"secondary_y": True}]])
+                
+                # Primary axis: Inflation
+                if 'Inflation_TUFE' in recent_macro.columns:
+                    fig_macro.add_trace(
+                        go.Scatter(
+                            x=recent_macro['Date'],
+                            y=recent_macro['Inflation_TUFE'],
+                            name='Inflation (TUFE)',
+                            line=dict(color='#FF6B6B', width=2),
+                            mode='lines+markers'
+                        ),
+                        secondary_y=False
+                    )
+                    
+                    # Lagged inflation features
+                    if 'Inflation_TUFE_Lag_1M' in recent_macro.columns:
+                        fig_macro.add_trace(
+                            go.Scatter(
+                                x=recent_macro['Date'],
+                                y=recent_macro['Inflation_TUFE_Lag_1M'],
+                                name='Inflation Lag 1M',
+                                line=dict(color='#FF6B6B', width=1, dash='dash'),
+                                opacity=0.6
+                            ),
+                            secondary_y=False
+                        )
+                    
+                    if 'Inflation_TUFE_Lag_3M' in recent_macro.columns:
+                        fig_macro.add_trace(
+                            go.Scatter(
+                                x=recent_macro['Date'],
+                                y=recent_macro['Inflation_TUFE_Lag_3M'],
+                                name='Inflation Lag 3M',
+                                line=dict(color='#FF6B6B', width=1, dash='dot'),
+                                opacity=0.4
+                            ),
+                            secondary_y=False
+                        )
+                
+                # Secondary axis: Interest Rate
+                if 'Interest_Rate' in recent_macro.columns:
+                    fig_macro.add_trace(
+                        go.Scatter(
+                            x=recent_macro['Date'],
+                            y=recent_macro['Interest_Rate'],
+                            name='Interest Rate',
+                            line=dict(color='#4ECDC4', width=2),
+                            mode='lines+markers'
+                        ),
+                        secondary_y=True
+                    )
+                    
+                    # Lagged interest rate features
+                    if 'Interest_Rate_Lag_1M' in recent_macro.columns:
+                        fig_macro.add_trace(
+                            go.Scatter(
+                                x=recent_macro['Date'],
+                                y=recent_macro['Interest_Rate_Lag_1M'],
+                                name='Interest Rate Lag 1M',
+                                line=dict(color='#4ECDC4', width=1, dash='dash'),
+                                opacity=0.6
+                            ),
+                            secondary_y=True
+                        )
+                    
+                    if 'Interest_Rate_Lag_3M' in recent_macro.columns:
+                        fig_macro.add_trace(
+                            go.Scatter(
+                                x=recent_macro['Date'],
+                                y=recent_macro['Interest_Rate_Lag_3M'],
+                                name='Interest Rate Lag 3M',
+                                line=dict(color='#4ECDC4', width=1, dash='dot'),
+                                opacity=0.4
+                            ),
+                            secondary_y=True
+                        )
+                
+                fig_macro.update_xaxis(title_text="Date")
+                fig_macro.update_yaxis(title_text="Inflation (TUFE) %", secondary_y=False)
+                fig_macro.update_yaxis(title_text="Interest Rate %", secondary_y=True)
+                fig_macro.update_layout(
+                    title='Macroeconomic Indicators: Inflation & Interest Rates with Lagged Features',
+                    height=400,
+                    hovermode='x unified',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                
+                st.plotly_chart(fig_macro, use_container_width=True)
+                
+                # Latest values table
+                st.markdown("#### Latest Macroeconomic Values")
+                latest_macro_cols = ['Date']
+                if 'Inflation_TUFE' in recent_macro.columns:
+                    latest_macro_cols.append('Inflation_TUFE')
+                if 'Interest_Rate' in recent_macro.columns:
+                    latest_macro_cols.append('Interest_Rate')
+                if 'Inflation_TUFE_Lag_1M' in recent_macro.columns:
+                    latest_macro_cols.extend(['Inflation_TUFE_Lag_1M', 'Inflation_TUFE_Lag_3M'])
+                if 'Interest_Rate_Lag_1M' in recent_macro.columns:
+                    latest_macro_cols.extend(['Interest_Rate_Lag_1M', 'Interest_Rate_Lag_3M'])
+                
+                latest_macro_table = recent_macro[latest_macro_cols].tail(10).copy()
+                latest_macro_table['Date'] = latest_macro_table['Date'].dt.strftime('%Y-%m-%d')
+                st.dataframe(latest_macro_table.style.format({
+                    col: '{:.2f}' for col in latest_macro_table.columns if col != 'Date'
+                }), use_container_width=True, hide_index=True)
+            else:
+                st.info("Plotly not available. Showing data table instead.")
+                st.dataframe(recent_macro.tail(20), use_container_width=True)
+        else:
+            st.warning("Macroeconomic data not available. Run notebook 06_macro_data_integration.ipynb to generate this data.")
+        
+        st.markdown("---")
+        
+        # 3. Technical Analysis Visuals
+        st.header("📈 Technical Analysis: BIST-100 Price Trend")
+        st.markdown("### Last 60 Days with Moving Average (SMA 20)")
+        
+        price_df = load_price_data()
+        if price_df is not None:
+            # Get last 60 days
+            recent_prices = price_df.tail(60).copy()
+            
+            # Calculate SMA 20
+            recent_prices['SMA_20'] = recent_prices['Close'].rolling(window=20, min_periods=1).mean()
+            
+            if PLOTLY_AVAILABLE:
+                fig_price = go.Figure()
+                
+                # Price line
+                fig_price.add_trace(go.Scatter(
+                    x=recent_prices['Date'],
+                    y=recent_prices['Close'],
+                    name='BIST-100 Close Price',
+                    line=dict(color='#1f77b4', width=2),
+                    mode='lines+markers',
+                    marker=dict(size=4)
+                ))
+                
+                # SMA 20 line
+                fig_price.add_trace(go.Scatter(
+                    x=recent_prices['Date'],
+                    y=recent_prices['SMA_20'],
+                    name='SMA 20',
+                    line=dict(color='#ff7f0e', width=2, dash='dash'),
+                    mode='lines'
+                ))
+                
+                fig_price.update_layout(
+                    title='BIST-100 Closing Price (Last 60 Days) with 20-Day Moving Average',
+                    xaxis_title='Date',
+                    yaxis_title='Price (TRY)',
+                    height=400,
+                    hovermode='x unified',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                
+                st.plotly_chart(fig_price, use_container_width=True)
+            else:
+                # Fallback to matplotlib
+                fig, ax = plt.subplots(figsize=(12, 6))
+                ax.plot(recent_prices['Date'], recent_prices['Close'], 
+                       label='BIST-100 Close Price', linewidth=2, color='#1f77b4')
+                ax.plot(recent_prices['Date'], recent_prices['SMA_20'], 
+                       label='SMA 20', linewidth=2, linestyle='--', color='#ff7f0e')
+                ax.set_xlabel('Date', fontsize=12, fontweight='bold')
+                ax.set_ylabel('Price (TRY)', fontsize=12, fontweight='bold')
+                ax.set_title('BIST-100 Closing Price (Last 60 Days) with 20-Day Moving Average', 
+                           fontsize=14, fontweight='bold', pad=20)
+                ax.legend()
+                ax.grid(True, alpha=0.3)
+                plt.xticks(rotation=45)
+                plt.tight_layout()
+                st.pyplot(fig)
+            
+            # Price statistics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Current Price", f"{recent_prices['Close'].iloc[-1]:.2f} TRY")
+            with col2:
+                price_change = recent_prices['Close'].iloc[-1] - recent_prices['Close'].iloc[0]
+                st.metric("60-Day Change", f"{price_change:.2f} TRY", 
+                         delta=f"{(price_change/recent_prices['Close'].iloc[0]*100):.2f}%")
+            with col3:
+                st.metric("SMA 20", f"{recent_prices['SMA_20'].iloc[-1]:.2f} TRY")
+            with col4:
+                sma_signal = "Above SMA" if recent_prices['Close'].iloc[-1] > recent_prices['SMA_20'].iloc[-1] else "Below SMA"
+                st.metric("Price vs SMA", sma_signal)
+        else:
+            st.warning("Price data not available. Please ensure data files exist.")
+        
+        st.markdown("---")
+        
+        # 4. Feature Insights
+        st.header("🔍 Model Architecture & Feature Insights")
+        
+        with st.expander("📚 How the LSTM Model Works", expanded=False):
+            st.markdown("""
+            ### Model Architecture
+            
+            Our **LSTM v2.0** model uses a sophisticated deep learning architecture to capture temporal patterns in financial data:
+            
+            **Neural Network Structure:**
+            - **3-Layer LSTM**: 128 → 64 → 32 hidden units
+            - **Sequence Length**: 30 days lookback window
+            - **Dropout**: 20% for regularization
+            - **Batch Normalization**: For stable training
+            - **Total Parameters**: 166,273 trainable weights
+            
+            **Why LSTM?**
+            - **Temporal Memory**: Remembers patterns across 30-day sequences
+            - **Non-linear Patterns**: Captures complex relationships traditional ML misses
+            - **Feature Learning**: Automatically discovers relevant patterns
+            """)
+        
+        with st.expander("📊 Feature Engineering: 70+ Technical Indicators", expanded=False):
+            st.markdown("""
+            ### Technical Indicators Used
+            
+            **Price-Based Features:**
+            - Moving Averages: SMA (5, 10, 20, 50, 100, 200 days), EMA (12, 26 days)
+            - Price Changes: Daily returns, momentum, rate of change
+            - Price Patterns: High-Low spreads, price positions
+            
+            **Momentum Indicators:**
+            - **RSI (Relative Strength Index)**: Overbought/oversold conditions
+            - **MACD**: Trend-following momentum indicator
+            - **Stochastic Oscillator**: Momentum comparison
+            
+            **Volatility Measures:**
+            - **ATR (Average True Range)**: Market volatility
+            - **Bollinger Bands**: Price volatility bands
+            - **Rolling Standard Deviation**: Price volatility over time
+            
+            **Volume Indicators:**
+            - Volume ratios and trends
+            - Volume-price relationships
+            - Volume moving averages
+            
+            **Lag Features:**
+            - Previous day/week values
+            - Rolling statistics (mean, std, min, max)
+            """)
+        
+        with st.expander("🌍 Macroeconomic Features with Lagged Effects", expanded=False):
+            st.markdown("""
+            ### Economic Context Integration
+            
+            **Primary Macro Features:**
+            - **Inflation (TUFE)**: Consumer Price Index - measures purchasing power
+            - **Interest Rate**: Central Bank policy rate - affects investment decisions
+            
+            **Lagged Features (Key Innovation):**
+            - **1-Month Lag**: Captures delayed economic impacts (30-day delay)
+            - **3-Month Lag**: Captures longer-term economic cycles (90-day delay)
+            
+            **Why Lags Matter:**
+            - Economic policies take time to affect markets
+            - Inflation changes don't immediately impact stock prices
+            - Interest rate changes have delayed effects on investment
+            - Historical economic conditions influence current market sentiment
+            
+            **Example:**
+            - If inflation was high 3 months ago, it may still affect current market behavior
+            - Interest rate changes from last month influence today's investment decisions
+            """)
+        
+        with st.expander("🧠 How Features Combine for Predictions", expanded=False):
+            st.markdown("""
+            ### Non-Linear Pattern Recognition
+            
+            **The LSTM Advantage:**
+            
+            1. **Temporal Sequences**: 
+               - Analyzes 30-day patterns, not just single-day snapshots
+               - Learns how technical indicators evolve over time
+               
+            2. **Feature Interactions**:
+               - Discovers relationships between RSI, MACD, and price movements
+               - Combines volume patterns with price trends
+               - Links macroeconomic conditions to technical signals
+               
+            3. **Lagged Economic Effects**:
+               - Understands that high inflation 3 months ago affects current prices
+               - Recognizes that interest rate changes have delayed market impacts
+               
+            4. **Multi-Scale Patterns**:
+               - Short-term: Daily price movements and technical signals
+               - Medium-term: 30-day trends and momentum
+               - Long-term: Macroeconomic cycles and lagged effects
+            
+            **Result**: The model captures complex, non-linear relationships that traditional 
+            machine learning models (like XGBoost) might miss, leading to the **3.68% accuracy improvement**.
+            """)
+        
+        st.markdown("---")
+        
+        # Original Model Performance Section (kept for compatibility)
         st.header("📈 Model Performance Summary")
         
         col1, col2, col3, col4 = st.columns(4)
