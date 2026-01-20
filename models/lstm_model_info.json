@@ -1,0 +1,8 @@
+{
+  "input_size": 70,
+  "hidden_size1": 128,
+  "hidden_size2": 64,
+  "hidden_size3": 32,
+  "dropout": 0.2,
+  "sequence_length": 30
+}

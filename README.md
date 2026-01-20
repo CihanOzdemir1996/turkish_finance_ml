@@ -1,6 +1,13 @@
-# BIST-100 Price Direction Prediction with Machine Learning
+# BIST-100 Price Direction Prediction with Machine Learning v2.0
 
-A comprehensive machine learning project that predicts next-day price direction (up/down) for Turkish BIST-100 stocks using technical indicators and ensemble learning models.
+A comprehensive machine learning project that predicts next-day price direction (up/down) for Turkish BIST-100 stocks using technical indicators, macroeconomic features, and deep learning models.
+
+## 🎉 Version 2.0 Highlights
+
+- **LSTM Deep Learning Model**: PyTorch-based LSTM with 52.46% accuracy (outperforms XGBoost by 3.68%)
+- **Macroeconomic Integration**: Inflation and Interest Rates with 1-month and 3-month lagged features
+- **30-Day Sequence Learning**: Temporal pattern recognition using 30-day lookback windows
+- **Advanced Architecture**: 3-layer LSTM (128→64→32 units) with dropout and batch normalization
 
 ## 📊 Project Overview
 
@@ -8,27 +15,32 @@ This project implements an end-to-end machine learning pipeline for predicting s
 
 ### Key Features
 - **70+ Technical Indicators**: Comprehensive feature engineering including moving averages, RSI, MACD, Bollinger Bands, ATR, momentum indicators, and more
+- **Macroeconomic Features**: Inflation (TUFE) and Interest Rates with 1M and 3M lagged versions
+- **Deep Learning**: LSTM (PyTorch) model for temporal pattern recognition
 - **Ensemble Models**: XGBoost and Random Forest classifiers for robust predictions
 - **Time-Series Aware**: Proper chronological train-test split respecting temporal dependencies
 - **Feature Importance Analysis**: Identification of the most influential technical indicators
-- **Live Prediction System**: Real-time buy/sell signal generation for next trading day
+- **Live Prediction System**: Real-time buy/sell signal generation via Streamlit web dashboard
 
 ## 📁 Project Structure
 
 ```
 turkish_finance_ml/
-├── notebooks/              # Jupyter notebooks (01-05)
+├── notebooks/              # Jupyter notebooks (01-07)
 │   ├── 01_data_collection.ipynb
 │   ├── 02_eda_exploration.ipynb
 │   ├── 03_data_preprocessing.ipynb
 │   ├── 04_model_training.ipynb
-│   └── 05_live_prediction.ipynb
+│   ├── 05_live_prediction.ipynb
+│   ├── 06_macro_data_integration.ipynb  # NEW in v2.0
+│   └── 07_lstm_model_training.ipynb     # NEW in v2.0
 ├── data/
 │   ├── raw/                # Original BIST stock price data
 │   └── processed/          # Feature-engineered datasets
-├── models/                  # Trained models (XGBoost, Random Forest)
+├── models/                  # Trained models (LSTM v2.0, XGBoost, Random Forest)
 ├── reports/                 # Visualizations and analysis reports
 ├── src/                     # Python modules for data collection
+├── app.py                   # Streamlit web dashboard (v2.0 with LSTM)
 └── README.md
 ```
 
@@ -76,11 +88,34 @@ turkish_finance_ml/
 - Evaluates model performance on test set
 - Provides comprehensive project summary and findings
 
+### 6. Macro Data Integration (`06_macro_data_integration.ipynb`) - NEW in v2.0
+- Fetches Inflation (TUFE) and Interest Rates from CBRT EVDS API
+- Resamples monthly/weekly data to daily frequency
+- Creates 1-month and 3-month lagged features
+- Analyzes correlation between macroeconomic indicators and BIST-100
+- Merges macro features with stock price data
+
+### 7. LSTM Model Training (`07_lstm_model_training.ipynb`) - NEW in v2.0
+- Implements PyTorch-based LSTM neural network
+- 30-day sequence lookback for temporal pattern recognition
+- Multi-layer architecture (128→64→32 units) with dropout
+- Trains with lagged macroeconomic features
+- Compares performance with XGBoost baseline
+- **Result**: 52.46% accuracy (3.68% improvement over XGBoost)
+
 ## 🎯 Model Performance
 
-- **Models**: XGBoost Classifier, Random Forest Classifier
+### Version 2.0 (LSTM Deep Learning)
+- **Primary Model**: LSTM (PyTorch) - 3-layer architecture
+- **Accuracy**: **52.46%** (outperforms XGBoost by 3.68%)
+- **Features**: 70+ technical indicators + macroeconomic features (Inflation, Interest Rates with lags)
+- **Sequence Length**: 30 days lookback
+- **Parameters**: 166,273 trainable parameters
+
+### Baseline Models
+- **XGBoost Classifier**: 48.79% accuracy
+- **Random Forest Classifier**: ~49% accuracy
 - **Features**: 70+ technical and price-based indicators
-- **Accuracy**: ~49% (reflecting market efficiency and prediction difficulty)
 - **Evaluation Metrics**: Accuracy, Precision, Recall, F1-Score, ROC-AUC
 - **Test Set**: 1,200+ samples evaluated
 
@@ -96,14 +131,16 @@ Despite this, the model provides valuable insights into which technical indicato
 
 ### Prerequisites
 ```bash
-Python 3.8+
+Python 3.8+ (3.14 supported with PyTorch)
 pandas
 numpy
 scikit-learn
 xgboost
+torch (PyTorch)  # NEW in v2.0
 matplotlib
 seaborn
 jupyter
+streamlit
 ```
 
 ### Installation
@@ -149,10 +186,13 @@ The dashboard provides:
 
 ## 📊 Technical Stack
 
-- **Data Sources**: Yahoo Finance (BIST stock prices)
-- **Libraries**: pandas, numpy, scikit-learn, xgboost, matplotlib, seaborn
-- **Models**: Random Forest Classifier, XGBoost Classifier
-- **Features**: 70+ technical indicators (SMA, EMA, RSI, MACD, Bollinger Bands, ATR, etc.)
+- **Data Sources**: Yahoo Finance (BIST stock prices), CBRT EVDS API (macroeconomic data)
+- **Libraries**: pandas, numpy, scikit-learn, xgboost, torch (PyTorch), matplotlib, seaborn, streamlit
+- **Models**: 
+  - **LSTM (PyTorch)** - Deep learning for temporal patterns (v2.0)
+  - **XGBoost Classifier** - Gradient boosting ensemble
+  - **Random Forest Classifier** - Ensemble method
+- **Features**: 70+ technical indicators + macroeconomic features (Inflation, Interest Rates with lags)
 - **Evaluation**: Accuracy, Precision, Recall, F1-Score, Confusion Matrix, ROC-AUC
 
 ## 🔍 Key Insights
@@ -174,16 +214,28 @@ Based on feature importance analysis, the top contributing indicators include:
 
 ## 🚀 Next Steps & Future Enhancements
 
-### Model Improvements
+### Completed in v2.0 ✅
 1. **Deep Learning Approaches**
-   - Implement LSTM (Long Short-Term Memory) networks for time-series prediction
-   - Try GRU (Gated Recurrent Unit) models
-   - Experiment with Transformer architectures for financial time-series
+   - ✅ Implemented LSTM (PyTorch) for time-series prediction
+   - ✅ 3-layer architecture with dropout and batch normalization
+   - ✅ 30-day sequence lookback for temporal patterns
 
 2. **Macroeconomic Data Integration**
-   - Add inflation rates, interest rates, and exchange rates
-   - Incorporate CBRT (Central Bank of Turkey) economic indicators
-   - Include GDP growth, unemployment rates, and other macroeconomic factors
+   - ✅ Added inflation rates (TUFE) and interest rates from CBRT EVDS API
+   - ✅ Created 1-month and 3-month lagged features
+   - ✅ Analyzed correlation between macro indicators and stock prices
+
+### Future Enhancements
+1. **Advanced Deep Learning**
+   - Try GRU (Gated Recurrent Unit) models
+   - Experiment with Transformer architectures for financial time-series
+   - Bidirectional LSTM for better pattern recognition
+   - Attention mechanisms for important time steps
+
+2. **Additional Macroeconomic Data**
+   - Add exchange rates and GDP growth
+   - Include unemployment rates and other economic indicators
+   - Sector-specific macroeconomic factors
 
 3. **Advanced Feature Engineering**
    - Sentiment analysis from news and social media

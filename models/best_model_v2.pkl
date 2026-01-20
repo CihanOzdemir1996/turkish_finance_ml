@@ -1,0 +1,1 @@
+{"model_type": "lstm", "model_path": "C:\\Users\\cihan\\turkish_finance_ml\\models\\lstm_model_v2.pth"}
