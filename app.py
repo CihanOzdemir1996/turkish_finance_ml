@@ -942,8 +942,9 @@ def main():
             recent_macro = macro_df.tail(365).copy()  # Last year
             
             if PLOTLY_AVAILABLE:
-                # Dual-axis line chart
-                fig_macro = make_subplots(specs=[[{"secondary_y": True}]])
+                # Dual-axis line chart - ensure we're using Plotly
+                try:
+                    fig_macro = make_subplots(specs=[[{"secondary_y": True}]])
                 
                 # Primary axis: Inflation
                 if 'Inflation_TUFE' in recent_macro.columns:
@@ -1124,9 +1125,9 @@ def main():
                         secondary_y=True
                     )
                 
-                fig_usd.update_xaxis(title_text="Date")
-                fig_usd.update_yaxis(title_text="USD/TRY Exchange Rate", secondary_y=False)
-                fig_usd.update_yaxis(title_text="Volatility (%)", secondary_y=True)
+                fig_usd.update_xaxes(title_text="Date")
+                fig_usd.update_yaxes(title_text="USD/TRY Exchange Rate", secondary_y=False)
+                fig_usd.update_yaxes(title_text="Volatility (%)", secondary_y=True)
                 fig_usd.update_layout(
                     title='USD/TRY Exchange Rate with Lagged Features and Volatility',
                     height=400,
