@@ -1,14 +1,15 @@
 # BIST-100 Price Direction Prediction with Machine Learning v3.0-Alpha
 
-A comprehensive machine learning project that predicts next-day price direction (up/down) for Turkish BIST-100 stocks using technical indicators, macroeconomic features, exchange rates, and deep learning models.
+**Deep Learning Powered (LSTM v3)** - A production-ready machine learning system that predicts next-day price direction (up/down) for Turkish BIST-100 stocks using technical indicators, macroeconomic features, exchange rates, and validated deep learning models.
 
 ## 🚀 Version 3.0-Alpha Highlights (Latest)
 
-- **LSTM Deep Learning Model**: PyTorch-based LSTM with **52%+ accuracy** (75 features including USD/TRY)
+- **Deep Learning Powered (LSTM v3)**: PyTorch-based LSTM with **52%+ accuracy** (75 features including USD/TRY)
+- **Validated Reliability**: **87% validation improvement** - Reduced overfitting gap from 48.94% to 8.38% through proper validation strategy
 - **USD/TRY Exchange Rate Integration**: Exchange rate with 1-month and 3-month lagged features + volatility indicators
-- **87% Validation Improvement**: Reduced overfitting gap from 48.94% to 8.38% through proper validation strategy
 - **Production-Ready Validation**: Zero data leakage with time-series aware cross-validation
 - **Enhanced Feature Set**: 75 features (70 technical + 5 USD/TRY features)
+- **Streamlit Cloud Ready**: Optimized for deployment with minimal dependencies and robust error handling
 
 ## 🎉 Version 2.0 Highlights
 

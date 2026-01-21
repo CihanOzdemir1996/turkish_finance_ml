@@ -1,14 +1,15 @@
 """
-BIST-100 Price Direction Prediction - Streamlit Web Application v2.0
+BIST-100 Price Direction Prediction - Streamlit Web Application v3.0-Alpha
 
 A clean dashboard for predicting next-day stock price direction using LSTM (PyTorch) deep learning model.
 
 Features:
-- LSTM v2.0 model with 52.46% accuracy (outperforms XGBoost by 3.68%)
+- LSTM v3.0-Alpha model with USD/TRY exchange rate features (52.00% accuracy)
 - 30-day sequence lookback for temporal pattern recognition
-- 70+ technical indicators + lagged macroeconomic features (Inflation, Interest Rates with 1M/3M lags)
+- 75 features: 70+ technical indicators + lagged macroeconomic features (Inflation, Interest Rates, USD/TRY with 1M/3M lags)
 - Real-time predictions with confidence scores
-- Automatic fallback to XGBoost if LSTM unavailable
+- USD/TRY trend visualization
+- Automatic fallback to v2.0 or XGBoost if v3.0 unavailable
 """
 
 import streamlit as st
@@ -123,12 +124,49 @@ class LSTMModel(nn.Module):
 
 @st.cache_data
 def load_model():
-    """Load the trained model (LSTM v2.0 or fallback to XGBoost)"""
+    """Load the trained model (LSTM v3.0-Alpha, v2.0, or fallback to XGBoost)"""
     project_root = Path(__file__).parent
     models_dir = project_root / "models"
     
-    # Try to load LSTM v2.0 model first
-    best_model_v2_path = models_dir / "best_model_v2.pkl"
+    # Try to load LSTM v3.0-Alpha model first
+    if PYTORCH_AVAILABLE:
+        lstm_info_v3_path = models_dir / "lstm_model_info_v3.json"
+        lstm_model_v3_path = models_dir / "lstm_model_v3.pth"
+        
+        if lstm_info_v3_path.exists() and lstm_model_v3_path.exists():
+            try:
+                with open(str(lstm_info_v3_path), 'r', encoding='utf-8') as f:
+                    model_info = json.load(f)
+                
+                lstm_model = LSTMModel(
+                    input_size=model_info['input_size'],
+                    hidden_size1=model_info['hidden_size1'],
+                    hidden_size2=model_info['hidden_size2'],
+                    hidden_size3=model_info['hidden_size3'],
+                    dropout=model_info['dropout']
+                )
+                
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                lstm_model.load_state_dict(torch.load(str(lstm_model_v3_path), map_location=device))
+                lstm_model.eval()
+                
+                return {
+                    'model': lstm_model,
+                    'model_name': 'LSTM v3.0-Alpha (PyTorch)',
+                    'model_type': 'lstm',
+                    'device': device,
+                    'sequence_length': model_info['sequence_length'],
+                    'version': 'v3.0-Alpha',
+                    'accuracy': model_info.get('test_accuracy', 0.52),
+                    'features_count': model_info['features_count'],
+                    'usd_try_features': model_info.get('usd_try_features', 5)
+                }
+            except Exception as e:
+                st.warning(f"Could not load LSTM v3.0: {str(e)}")
+    
+    # Try to load LSTM v2.0 model as fallback
+    if PYTORCH_AVAILABLE:
+        best_model_v2_path = models_dir / "best_model_v2.pkl"
     if best_model_v2_path.exists():
         try:
             with open(best_model_v2_path, 'r', encoding='utf-8') as f:
@@ -212,21 +250,37 @@ def load_model():
 
 @st.cache_data
 def load_latest_data():
-    """Load the latest processed data for prediction"""
-    project_root = Path(__file__).parent
-    data_processed_dir = project_root / "data" / "processed"
+    """Load the latest processed data for prediction with error handling"""
+    try:
+        project_root = Path(__file__).parent
+        data_processed_dir = project_root / "data" / "processed"
+        
+        # Use str() for cross-platform path compatibility
+        X_test = pd.read_csv(str(data_processed_dir / "X_test.csv"))
+        y_test_df = pd.read_csv(str(data_processed_dir / "y_test.csv"))
+    except FileNotFoundError as e:
+        st.error(f"Data files not found: {str(e)}. Please ensure data preprocessing is complete.")
+        return None, None, None, None
+    except Exception as e:
+        st.error(f"Error loading data: {str(e)}")
+        return None, None, None, None
     
-    # Use str() for cross-platform path compatibility
-    X_test = pd.read_csv(str(data_processed_dir / "X_test.csv"))
-    y_test_df = pd.read_csv(str(data_processed_dir / "y_test.csv"))
-    
-    # Also load full features for LSTM sequence creation
-    full_features_file = data_processed_dir / "bist_features_full.csv"
+    # Also load full features for LSTM sequence creation (prioritize v3.0)
     full_features = None
-    if full_features_file.exists():
-        full_features = pd.read_csv(str(full_features_file))
-        full_features['Date'] = pd.to_datetime(full_features['Date'])
-        full_features = full_features.sort_values('Date').reset_index(drop=True)
+    try:
+        full_features_file_v3 = data_processed_dir / "bist_features_full_v3.csv"
+        if full_features_file_v3.exists():
+            full_features = pd.read_csv(str(full_features_file_v3))
+            full_features['Date'] = pd.to_datetime(full_features['Date'])
+            full_features = full_features.sort_values('Date').reset_index(drop=True)
+        else:
+            full_features_file = data_processed_dir / "bist_features_full.csv"
+            if full_features_file.exists():
+                full_features = pd.read_csv(str(full_features_file))
+                full_features['Date'] = pd.to_datetime(full_features['Date'])
+                full_features = full_features.sort_values('Date').reset_index(drop=True)
+    except Exception as e:
+        st.warning(f"Could not load full features: {str(e)}. LSTM predictions may be unavailable.")
     
     # Get the most recent sample (last row)
     latest_features = X_test.iloc[-1:].copy()
@@ -235,49 +289,63 @@ def load_latest_data():
 
 @st.cache_data
 def load_macro_data():
-    """Load macroeconomic data for visualization"""
-    project_root = Path(__file__).parent
-    data_processed_dir = project_root / "data" / "processed"
-    
-    macro_file = data_processed_dir / "bist_macro_merged.csv"
-    if macro_file.exists():
-        macro_df = pd.read_csv(str(macro_file))
-        macro_df['Date'] = pd.to_datetime(macro_df['Date'])
-        macro_df = macro_df.sort_values('Date').reset_index(drop=True)
-        return macro_df
+    """Load macroeconomic data for visualization (prioritize v3.0) with error handling"""
+    try:
+        project_root = Path(__file__).parent
+        data_processed_dir = project_root / "data" / "processed"
+        
+        # Try v3.0 first (includes USD/TRY)
+        macro_file_v3 = data_processed_dir / "bist_macro_merged_v3.csv"
+        if macro_file_v3.exists():
+            macro_df = pd.read_csv(str(macro_file_v3))
+            macro_df['Date'] = pd.to_datetime(macro_df['Date'])
+            macro_df = macro_df.sort_values('Date').reset_index(drop=True)
+            return macro_df
+        
+        # Fallback to v2.0
+        macro_file = data_processed_dir / "bist_macro_merged.csv"
+        if macro_file.exists():
+            macro_df = pd.read_csv(str(macro_file))
+            macro_df['Date'] = pd.to_datetime(macro_df['Date'])
+            macro_df = macro_df.sort_values('Date').reset_index(drop=True)
+            return macro_df
+    except Exception as e:
+        st.warning(f"Could not load macroeconomic data: {str(e)}")
     return None
 
 @st.cache_data
 def load_price_data():
-    """Load BIST-100 price data for technical analysis"""
-    project_root = Path(__file__).parent
-    data_processed_dir = project_root / "data" / "processed"
-    
-    # Try to load from full features first (has Date and Close)
-    full_features_file = data_processed_dir / "bist_features_full.csv"
-    if full_features_file.exists():
-        df = pd.read_csv(str(full_features_file))
-        if 'Date' in df.columns:
-            df['Date'] = pd.to_datetime(df['Date'])
-            # Try to find Close price column
-            close_cols = [col for col in df.columns if 'Close' in col or 'close' in col]
-            if close_cols:
-                price_df = df[['Date', close_cols[0]]].copy()
-                price_df.columns = ['Date', 'Close']
+    """Load BIST-100 price data for technical analysis with error handling"""
+    try:
+        project_root = Path(__file__).parent
+        data_processed_dir = project_root / "data" / "processed"
+        
+        # Try to load from full features first (has Date and Close)
+        full_features_file = data_processed_dir / "bist_features_full.csv"
+        if full_features_file.exists():
+            df = pd.read_csv(str(full_features_file))
+            if 'Date' in df.columns:
+                df['Date'] = pd.to_datetime(df['Date'])
+                # Try to find Close price column
+                close_cols = [col for col in df.columns if 'Close' in col or 'close' in col]
+                if close_cols:
+                    price_df = df[['Date', close_cols[0]]].copy()
+                    price_df.columns = ['Date', 'Close']
+                    price_df = price_df.sort_values('Date').reset_index(drop=True)
+                    return price_df
+        
+        # Fallback to raw data
+        data_raw_dir = project_root / "data" / "raw"
+        raw_file = data_raw_dir / "bist_stock_prices.csv"
+        if raw_file.exists():
+            df = pd.read_csv(str(raw_file))
+            if 'Date' in df.columns and 'Close' in df.columns:
+                df['Date'] = pd.to_datetime(df['Date'])
+                price_df = df[['Date', 'Close']].copy()
                 price_df = price_df.sort_values('Date').reset_index(drop=True)
                 return price_df
-    
-    # Fallback to raw data
-    data_raw_dir = project_root / "data" / "raw"
-    raw_file = data_raw_dir / "bist_stock_prices.csv"
-    if raw_file.exists():
-        df = pd.read_csv(str(raw_file))
-        if 'Date' in df.columns and 'Close' in df.columns:
-            df['Date'] = pd.to_datetime(df['Date'])
-            price_df = df[['Date', 'Close']].copy()
-            price_df = price_df.sort_values('Date').reset_index(drop=True)
-            return price_df
-    
+    except Exception as e:
+        st.warning(f"Could not load price data: {str(e)}")
     return None
 
 @st.cache_data
@@ -300,12 +368,23 @@ def get_feature_importance(_model_dict, feature_names):
 
 @st.cache_data
 def load_scaler():
-    """Load the scaler used for LSTM"""
-    project_root = Path(__file__).parent
-    models_dir = project_root / "models"
-    scaler_path = models_dir / "lstm_scaler.pkl"
-    if scaler_path.exists():
-        return joblib.load(scaler_path)
+    """Load the scaler used for LSTM (prioritize v3.0) with error handling"""
+    try:
+        project_root = Path(__file__).parent
+        data_processed_dir = project_root / "data" / "processed"
+        
+        # Try v3.0 scaler first
+        scaler_path_v3 = data_processed_dir / "lstm_scaler_v3.pkl"
+        if scaler_path_v3.exists():
+            return joblib.load(str(scaler_path_v3))
+        
+        # Fallback to v2.0
+        models_dir = project_root / "models"
+        scaler_path = models_dir / "lstm_scaler.pkl"
+        if scaler_path.exists():
+            return joblib.load(str(scaler_path))
+    except Exception as e:
+        st.warning(f"Could not load scaler: {str(e)}")
     return None
 
 def create_sequence_for_prediction(full_features, scaler, sequence_length=30):
@@ -590,14 +669,24 @@ def main():
         
         # 1. Model Performance Showcase
         st.header("📊 Model Performance Comparison")
-        st.markdown("### LSTM v2.0 vs XGBoost Baseline")
-        
-        # Model comparison data
-        model_comparison_data = {
-            'Model': ['LSTM v2.0 (PyTorch)', 'XGBoost Baseline'],
-            'Accuracy': [52.46, 48.79],
-            'Improvement': [3.68, 0.0]
-        }
+        # Check if v3.0 is loaded
+        model_version = model_dict.get('version', 'v2.0')
+        if model_version == 'v3.0-Alpha':
+            st.markdown("### LSTM v3.0-Alpha vs v2.0 vs XGBoost")
+            # Model comparison data
+            model_comparison_data = {
+                'Model': ['LSTM v3.0-Alpha (with USD/TRY)', 'LSTM v2.0', 'XGBoost Baseline'],
+                'Accuracy': [52.00, 52.46, 48.79],
+                'Improvement': [3.21, 3.68, 0.0]
+            }
+        else:
+            st.markdown("### LSTM v2.0 vs XGBoost Baseline")
+            # Model comparison data
+            model_comparison_data = {
+                'Model': ['LSTM v2.0 (PyTorch)', 'XGBoost Baseline'],
+                'Accuracy': [52.46, 48.79],
+                'Improvement': [3.68, 0.0]
+            }
         comparison_df = pd.DataFrame(model_comparison_data)
         
         if PLOTLY_AVAILABLE:
@@ -653,13 +742,24 @@ def main():
             st.pyplot(fig)
         
         # Metrics row
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("LSTM Accuracy", "52.46%", delta="+3.68%", delta_color="normal")
-        with col2:
-            st.metric("XGBoost Accuracy", "48.79%", delta="Baseline", delta_color="off")
-        with col3:
-            st.metric("Improvement", "+3.68%", delta="Significant", delta_color="normal")
+        if model_version == 'v3.0-Alpha':
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("LSTM v3.0 Accuracy", "52.00%", delta="+3.21%", delta_color="normal")
+            with col2:
+                st.metric("LSTM v2.0 Accuracy", "52.46%", delta="+3.68%", delta_color="normal")
+            with col3:
+                st.metric("XGBoost Accuracy", "48.79%", delta="Baseline", delta_color="off")
+            with col4:
+                st.metric("USD/TRY Features", f"{model_dict.get('usd_try_features', 5)}", delta="v3.0", delta_color="normal")
+        else:
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("LSTM Accuracy", "52.46%", delta="+3.68%", delta_color="normal")
+            with col2:
+                st.metric("XGBoost Accuracy", "48.79%", delta="Baseline", delta_color="off")
+            with col3:
+                st.metric("Improvement", "+3.68%", delta="Significant", delta_color="normal")
         
         st.markdown("---")
         
@@ -788,6 +888,108 @@ def main():
                 st.dataframe(recent_macro.tail(20), use_container_width=True)
         else:
             st.warning("Macroeconomic data not available. Run notebook 06_macro_data_integration.ipynb to generate this data.")
+        
+        st.markdown("---")
+        
+        # 2.5. USD/TRY Exchange Rate Trend (NEW in v3.0)
+        st.header("💵 USD/TRY Exchange Rate Trend (v3.0-Alpha)")
+        st.markdown("### Currency Impact on BIST-100")
+        
+        macro_df = load_macro_data()
+        if macro_df is not None and 'USD_TRY' in macro_df.columns:
+            # Get last 12 months
+            recent_usd = macro_df.tail(365).copy()
+            
+            if PLOTLY_AVAILABLE:
+                fig_usd = make_subplots(specs=[[{"secondary_y": True}]])
+                
+                # Primary axis: USD/TRY
+                fig_usd.add_trace(
+                    go.Scatter(
+                        x=recent_usd['Date'],
+                        y=recent_usd['USD_TRY'],
+                        name='USD/TRY (Current)',
+                        line=dict(color='#E63946', width=2),
+                        mode='lines+markers'
+                    ),
+                    secondary_y=False
+                )
+                
+                # Lagged features
+                if 'USD_TRY_Lag_1M' in recent_usd.columns:
+                    fig_usd.add_trace(
+                        go.Scatter(
+                            x=recent_usd['Date'],
+                            y=recent_usd['USD_TRY_Lag_1M'],
+                            name='USD/TRY Lag 1M',
+                            line=dict(color='#E63946', width=1, dash='dash'),
+                            opacity=0.6
+                        ),
+                        secondary_y=False
+                    )
+                
+                if 'USD_TRY_Lag_3M' in recent_usd.columns:
+                    fig_usd.add_trace(
+                        go.Scatter(
+                            x=recent_usd['Date'],
+                            y=recent_usd['USD_TRY_Lag_3M'],
+                            name='USD/TRY Lag 3M',
+                            line=dict(color='#E63946', width=1, dash='dot'),
+                            opacity=0.4
+                        ),
+                        secondary_y=False
+                    )
+                
+                # Secondary axis: Volatility
+                if 'USD_TRY_Volatility' in recent_usd.columns:
+                    fig_usd.add_trace(
+                        go.Scatter(
+                            x=recent_usd['Date'],
+                            y=recent_usd['USD_TRY_Volatility'],
+                            name='USD/TRY Volatility (30-day)',
+                            line=dict(color='#FFB703', width=2),
+                            mode='lines',
+                            fill='tonexty',
+                            fillcolor='rgba(255, 183, 3, 0.1)'
+                        ),
+                        secondary_y=True
+                    )
+                
+                fig_usd.update_xaxis(title_text="Date")
+                fig_usd.update_yaxis(title_text="USD/TRY Exchange Rate", secondary_y=False)
+                fig_usd.update_yaxis(title_text="Volatility (%)", secondary_y=True)
+                fig_usd.update_layout(
+                    title='USD/TRY Exchange Rate with Lagged Features and Volatility',
+                    height=400,
+                    hovermode='x unified',
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)'
+                )
+                
+                st.plotly_chart(fig_usd, use_container_width=True)
+                
+                # Latest USD/TRY values
+                st.markdown("#### Latest USD/TRY Values")
+                usd_cols = ['Date', 'USD_TRY']
+                if 'USD_TRY_Lag_1M' in recent_usd.columns:
+                    usd_cols.extend(['USD_TRY_Lag_1M', 'USD_TRY_Lag_3M'])
+                if 'USD_TRY_Change' in recent_usd.columns:
+                    usd_cols.append('USD_TRY_Change')
+                if 'USD_TRY_Volatility' in recent_usd.columns:
+                    usd_cols.append('USD_TRY_Volatility')
+                
+                latest_usd_table = recent_usd[usd_cols].tail(10).copy()
+                latest_usd_table['Date'] = latest_usd_table['Date'].dt.strftime('%Y-%m-%d')
+                st.dataframe(latest_usd_table.style.format({
+                    col: '{:.2f}' if 'USD_TRY' in col else '{:.4f}' if 'Volatility' in col or 'Change' in col else '{:.2f}'
+                    for col in latest_usd_table.columns if col != 'Date'
+                }), use_container_width=True, hide_index=True)
+            else:
+                st.info("Plotly not available. Showing data table instead.")
+                st.dataframe(recent_usd[['Date', 'USD_TRY', 'USD_TRY_Lag_1M', 'USD_TRY_Lag_3M', 'USD_TRY_Volatility']].tail(20), use_container_width=True)
+        else:
+            st.info("USD/TRY data not available. This feature requires v3.0-Alpha data.")
         
         st.markdown("---")
         
@@ -1011,4 +1213,8 @@ def main():
         st.info("Please ensure you have run the preprocessing and model training notebooks first.")
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        st.error(f"⚠️ Application error: {str(e)}")
+        st.info("The application encountered an unexpected error. Please refresh the page or contact support if the issue persists.")

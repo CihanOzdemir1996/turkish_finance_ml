@@ -1,0 +1,19 @@
+{
+  "model_type": "lstm",
+  "model_path": "C:\\Users\\cihan\\turkish_finance_ml\\models\\lstm_model_v3.pth",
+  "input_size": 75,
+  "hidden_size1": 128,
+  "hidden_size2": 64,
+  "hidden_size3": 32,
+  "dropout": 0.2,
+  "sequence_length": 30,
+  "test_accuracy": 0.52,
+  "test_precision": 0.0,
+  "test_recall": 0.0,
+  "test_f1": 0.0,
+  "test_auc": 0.5481270032051282,
+  "features_count": 75,
+  "usd_try_features": 5,
+  "version": "v3.0-Alpha",
+  "trained_date": "2026-01-21T17:27:30.759645"
+}

@@ -1,0 +1,7 @@
+VALIDATION RESULTS
+======================================================================
+Model: Logistic Regression (C=0.1)
+Training Accuracy: 0.5754
+Test Accuracy: 0.4917
+Gap: 0.0838
+Status: YELLOW
