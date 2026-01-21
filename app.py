@@ -1026,16 +1026,20 @@ def main():
                     fig_macro.update_xaxes(title_text="Date")
                     fig_macro.update_yaxes(title_text="Inflation (TUFE) %", secondary_y=False)
                     fig_macro.update_yaxes(title_text="Interest Rate %", secondary_y=True)
-                fig_macro.update_layout(
-                    title='Macroeconomic Indicators: Inflation & Interest Rates with Lagged Features',
-                    height=400,
-                    hovermode='x unified',
-                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    paper_bgcolor='rgba(0,0,0,0)'
-                )
-                
-                st.plotly_chart(fig_macro, use_container_width=True)
+                    fig_macro.update_layout(
+                        title='Macroeconomic Indicators: Inflation & Interest Rates with Lagged Features',
+                        height=400,
+                        hovermode='x unified',
+                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)'
+                    )
+                    
+                    st.plotly_chart(fig_macro, use_container_width=True)
+                except Exception as e:
+                    st.error(f"Error creating macroeconomic chart: {str(e)}")
+                    st.info("Falling back to data table view.")
+                    st.dataframe(recent_macro.tail(20), use_container_width=True)
                 
                 # Latest values table
                 st.markdown("#### Latest Macroeconomic Values")
