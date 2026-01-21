@@ -363,6 +363,7 @@ def load_feature_importance_proxy():
             feature_names = joblib.load(str(feature_names_path))
             return proxy_model, feature_names
     except Exception as e:
+        # Silently fail - will fallback to other methods
         pass
     return None, None
 
@@ -521,28 +522,60 @@ def make_prediction(model_dict, latest_features, full_features=None):
         
         return prediction, prob_up, prob_down, confidence
 
-def plot_feature_importance(importance_df, top_n=10):
-    """Create feature importance visualization"""
-    top_features = importance_df.head(top_n)
+def plot_feature_importance(importance_df, top_n=15, use_plotly=True):
+    """Create feature importance visualization (Plotly or Matplotlib)"""
+    top_features = importance_df.head(top_n).sort_values('Importance', ascending=True)
     
-    fig, ax = plt.subplots(figsize=(10, 6))
-    colors = plt.cm.viridis(np.linspace(0, 1, len(top_features)))
-    bars = ax.barh(range(len(top_features)), top_features['Importance'], color=colors)
-    ax.set_yticks(range(len(top_features)))
-    ax.set_yticklabels(top_features['Feature'])
-    ax.set_xlabel('Feature Importance', fontsize=12, fontweight='bold')
-    ax.set_title(f'Top {top_n} Most Important Features for Price Direction Prediction', 
-                 fontsize=14, fontweight='bold', pad=20)
-    ax.invert_yaxis()
-    ax.grid(True, alpha=0.3, axis='x')
-    
-    # Add value labels on bars
-    for i, (idx, row) in enumerate(top_features.iterrows()):
-        ax.text(row['Importance'] + 0.001, i, f'{row["Importance"]:.4f}', 
-                va='center', fontsize=9)
-    
-    plt.tight_layout()
-    return fig
+    if use_plotly and PLOTLY_AVAILABLE:
+        # Plotly horizontal bar chart
+        fig = go.Figure()
+        
+        # Color gradient based on importance
+        fig.add_trace(go.Bar(
+            x=top_features['Importance'],
+            y=top_features['Feature'],
+            orientation='h',
+            marker=dict(
+                color=top_features['Importance'],
+                colorscale='Viridis',
+                showscale=True,
+                colorbar=dict(title="Importance")
+            ),
+            text=[f"{val:.4f}" for val in top_features['Importance']],
+            textposition='outside',
+            name='Importance'
+        ))
+        
+        fig.update_layout(
+            title=f'Top {top_n} Most Influential Features',
+            xaxis_title='Feature Importance',
+            yaxis_title='Feature',
+            height=600,
+            showlegend=False,
+            margin=dict(l=150, r=20, t=50, b=20),
+            plot_bgcolor='rgba(0,0,0,0)',
+            paper_bgcolor='rgba(0,0,0,0)'
+        )
+        
+        return fig
+    else:
+        # Matplotlib fallback
+        fig, ax = plt.subplots(figsize=(10, 8))
+        colors = plt.cm.viridis(np.linspace(0, 1, len(top_features)))
+        bars = ax.barh(range(len(top_features)), top_features['Importance'], color=colors)
+        ax.set_yticks(range(len(top_features)))
+        ax.set_yticklabels(top_features['Feature'])
+        ax.set_xlabel('Feature Importance', fontsize=12, fontweight='bold')
+        ax.set_title(f'Top {top_n} Most Important Features', fontsize=14, fontweight='bold', pad=20)
+        ax.grid(True, alpha=0.3, axis='x')
+        
+        # Add value labels
+        for i, (idx, row) in enumerate(top_features.iterrows()):
+            ax.text(row['Importance'] + 0.001, i, f'{row["Importance"]:.4f}', 
+                   va='center', fontsize=9)
+        
+        plt.tight_layout()
+        return fig
 
 def load_feature_importance_chart():
     """Load feature importance chart from reports if available"""
