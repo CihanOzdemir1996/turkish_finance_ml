@@ -349,46 +349,78 @@ def load_price_data():
     return None
 
 @st.cache_data
+def load_feature_importance_proxy():
+    """Load the feature importance proxy model (XGBoost trained on v3.0 features)"""
+    try:
+        project_root = Path(__file__).parent
+        models_dir = project_root / "models"
+        
+        proxy_model_path = models_dir / "feature_importance_proxy.pkl"
+        feature_names_path = models_dir / "feature_names_v3.pkl"
+        
+        if proxy_model_path.exists() and feature_names_path.exists():
+            proxy_model = joblib.load(str(proxy_model_path))
+            feature_names = joblib.load(str(feature_names_path))
+            return proxy_model, feature_names
+    except Exception as e:
+        pass
+    return None, None
+
+@st.cache_data
 def get_feature_importance(_model_dict, feature_names, X_test=None, y_test=None):
-    """Get feature importance from the model with LSTM support and XGBoost fallback"""
+    """Get feature importance from the model with LSTM proxy support"""
     model = _model_dict['model']
     model_type = _model_dict.get('model_type', 'xgboost')
     
     if model_type == 'lstm':
-        # For LSTM, try to use XGBoost as a proxy for feature importance
-        # This gives us interpretable feature importance for the same features
+        # For LSTM, use the dedicated proxy model trained on exact same features
+        proxy_model, proxy_feature_names = load_feature_importance_proxy()
+        
+        if proxy_model is not None and proxy_feature_names is not None:
+            # Match feature names (proxy was trained on v3.0 features)
+            if len(proxy_feature_names) == len(feature_names):
+                if hasattr(proxy_model, 'feature_importances_'):
+                    importance_df = pd.DataFrame({
+                        'Feature': feature_names,
+                        'Importance': proxy_model.feature_importances_
+                    }).sort_values('Importance', ascending=False)
+                    return importance_df
+            else:
+                # Try to match by name if counts don't match
+                try:
+                    feature_map = {name: idx for idx, name in enumerate(proxy_feature_names)}
+                    matched_importances = []
+                    for fname in feature_names:
+                        if fname in feature_map:
+                            matched_importances.append(proxy_model.feature_importances_[feature_map[fname]])
+                        else:
+                            matched_importances.append(0.0)
+                    
+                    importance_df = pd.DataFrame({
+                        'Feature': feature_names,
+                        'Importance': matched_importances
+                    }).sort_values('Importance', ascending=False)
+                    return importance_df
+                except:
+                    pass
+        
+        # Fallback: Try original XGBoost model
         try:
             project_root = Path(__file__).parent
             models_dir = project_root / "models"
-            
-            # Try to load XGBoost model trained on same features
             xgb_path = models_dir / "xgboost_model.pkl"
-            if xgb_path.exists() and X_test is not None and y_test is not None:
+            if xgb_path.exists():
                 xgb_model = joblib.load(str(xgb_path))
                 if hasattr(xgb_model, 'feature_importances_'):
-                    # Ensure feature count matches
                     if len(xgb_model.feature_importances_) == len(feature_names):
                         importance_df = pd.DataFrame({
                             'Feature': feature_names,
                             'Importance': xgb_model.feature_importances_
                         }).sort_values('Importance', ascending=False)
                         return importance_df
-            
-            # Fallback: Try best_model or random_forest
-            for fallback_path in [models_dir / "best_model.pkl", models_dir / "random_forest_model.pkl"]:
-                if fallback_path.exists() and X_test is not None and y_test is not None:
-                    fallback_model = joblib.load(str(fallback_path))
-                    if hasattr(fallback_model, 'feature_importances_'):
-                        if len(fallback_model.feature_importances_) == len(feature_names):
-                            importance_df = pd.DataFrame({
-                                'Feature': feature_names,
-                                'Importance': fallback_model.feature_importances_
-                            }).sort_values('Importance', ascending=False)
-                            return importance_df
-        except Exception as e:
-            st.warning(f"Could not load fallback model for feature importance: {str(e)}")
+        except:
+            pass
         
-        # If all else fails, return None
         return None
     
     # For tree-based models (XGBoost, Random Forest)
@@ -681,7 +713,7 @@ def main():
         if len(feature_names) > 0:
             st.markdown(f"**Analyzing {len(feature_names)} features** (including USD/TRY and macro lags for v3.0-Alpha)")
             
-            # Get feature importance with fallback support
+            # Get feature importance with proxy model support
             importance_df = get_feature_importance(
                 model_dict, 
                 feature_names, 
@@ -690,31 +722,39 @@ def main():
             )
             
             if importance_df is not None:
-                # Show which model was used for importance
+                # Show proxy model explanation for LSTM
                 if model_dict.get('model_type') == 'lstm':
-                    st.info("ℹ️ **LSTM models don't have direct feature importance.** Showing XGBoost feature importance as a proxy (trained on same features).")
+                    st.info("""
+                    **📊 Proxy Model Approach**: Since LSTM is a 'black-box' deep learning model, we use a validated XGBoost proxy 
+                    trained on the exact same 75 features to provide transparency on which factors (e.g., USD/TRY Volatility, RSI, 
+                    or macro lags) are driving the current market sentiment.
+                    """)
                 
-                # Highlight USD/TRY and macro features in top 20
-                top_20 = importance_df.head(20)
-                usd_features = [f for f in top_20['Feature'] if 'USD' in f]
-                macro_features = [f for f in top_20['Feature'] if any(x in f for x in ['Inflation', 'Interest', 'Lag'])]
+                # Highlight USD/TRY and macro features in top 15
+                top_15 = importance_df.head(15)
+                usd_features = [f for f in top_15['Feature'] if 'USD' in f]
+                macro_features = [f for f in top_15['Feature'] if any(x in f for x in ['Inflation', 'Interest', 'Lag'])]
                 
                 if usd_features or macro_features:
-                    st.markdown("**🌟 Key Features in Top 20:**")
+                    st.markdown("**🌟 Key Features in Top 15:**")
                     cols = st.columns(2)
                     with cols[0]:
                         if usd_features:
-                            st.success(f"💵 **USD/TRY Features**: {', '.join(usd_features[:3])}")
+                            st.success(f"💵 **USD/TRY Features**: {', '.join(usd_features)}")
                     with cols[1]:
                         if macro_features:
                             st.success(f"🌍 **Macro Features**: {', '.join(macro_features[:3])}")
                 
-                # Display top 10 features
-                st.subheader("📊 Top 10 Most Important Features")
+                # Display top 15 features with Plotly chart
+                st.subheader("📊 Top 15 Most Influential Features")
                 
-                # Create visualization
-                fig = plot_feature_importance(importance_df, top_n=10)
-                st.pyplot(fig)
+                # Create visualization (Plotly preferred)
+                fig = plot_feature_importance(importance_df, top_n=15, use_plotly=True)
+                
+                if PLOTLY_AVAILABLE and isinstance(fig, go.Figure):
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.pyplot(fig)
                 
                 # Display as table
                 with st.expander("📋 View All Feature Importances", expanded=False):
@@ -724,8 +764,8 @@ def main():
                         height=400
                     )
             else:
-                st.warning("⚠️ Feature importance not available for this model type.")
-                st.info("💡 **Tip**: For LSTM models, feature importance is calculated using XGBoost as a proxy. If no tree-based model is available, feature importance cannot be displayed.")
+                st.warning("⚠️ Feature importance not available.")
+                st.info("💡 **Tip**: The proxy model may not be available. Please ensure `feature_importance_proxy.pkl` exists in the models directory.")
                 
                 # Show feature count and categories
                 st.markdown("**📊 Feature Breakdown:**")
