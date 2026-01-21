@@ -513,17 +513,6 @@ def main():
     try:
         latest_features, X_test, y_test_df, full_features = load_latest_data()
         
-        # Get feature names for importance analysis (prioritize v3.0 features from full_features)
-        if full_features is not None:
-            exclude_cols = ['Date']
-            if 'Ticker' in full_features.columns:
-                exclude_cols.append('Ticker')
-            target_cols = [col for col in full_features.columns if col.startswith('Target_')]
-            feature_names = [col for col in full_features.columns if col not in exclude_cols + target_cols]
-        else:
-            # Fallback to X_test columns
-            feature_names = list(X_test.columns) if X_test is not None else []
-        
         prediction, prob_up, prob_down, confidence = make_prediction(model_dict, latest_features, full_features)
         
         # Determine confidence level
