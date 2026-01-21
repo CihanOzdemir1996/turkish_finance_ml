@@ -948,16 +948,16 @@ def main():
                     
                     # Primary axis: Inflation
                     if 'Inflation_TUFE' in recent_macro.columns:
-                    fig_macro.add_trace(
-                        go.Scatter(
-                            x=recent_macro['Date'],
-                            y=recent_macro['Inflation_TUFE'],
-                            name='Inflation (TUFE)',
-                            line=dict(color='#FF6B6B', width=2),
-                            mode='lines+markers'
-                        ),
-                        secondary_y=False
-                    )
+                        fig_macro.add_trace(
+                            go.Scatter(
+                                x=recent_macro['Date'],
+                                y=recent_macro['Inflation_TUFE'],
+                                name='Inflation (TUFE)',
+                                line=dict(color='#FF6B6B', width=2),
+                                mode='lines+markers'
+                            ),
+                            secondary_y=False
+                        )
                     
                     # Lagged inflation features
                     if 'Inflation_TUFE_Lag_1M' in recent_macro.columns:
@@ -984,18 +984,18 @@ def main():
                             secondary_y=False
                         )
                 
-                # Secondary axis: Interest Rate
-                if 'Interest_Rate' in recent_macro.columns:
-                    fig_macro.add_trace(
-                        go.Scatter(
-                            x=recent_macro['Date'],
-                            y=recent_macro['Interest_Rate'],
-                            name='Interest Rate',
-                            line=dict(color='#4ECDC4', width=2),
-                            mode='lines+markers'
-                        ),
-                        secondary_y=True
-                    )
+                    # Secondary axis: Interest Rate
+                    if 'Interest_Rate' in recent_macro.columns:
+                        fig_macro.add_trace(
+                            go.Scatter(
+                                x=recent_macro['Date'],
+                                y=recent_macro['Interest_Rate'],
+                                name='Interest Rate',
+                                line=dict(color='#4ECDC4', width=2),
+                                mode='lines+markers'
+                            ),
+                            secondary_y=True
+                        )
                     
                     # Lagged interest rate features
                     if 'Interest_Rate_Lag_1M' in recent_macro.columns:
@@ -1022,9 +1022,10 @@ def main():
                             secondary_y=True
                         )
                 
-                fig_macro.update_xaxis(title_text="Date")
-                fig_macro.update_yaxis(title_text="Inflation (TUFE) %", secondary_y=False)
-                fig_macro.update_yaxis(title_text="Interest Rate %", secondary_y=True)
+                    # Update axes - use correct Plotly syntax (update_xaxes, not update_xaxis)
+                    fig_macro.update_xaxes(title_text="Date")
+                    fig_macro.update_yaxes(title_text="Inflation (TUFE) %", secondary_y=False)
+                    fig_macro.update_yaxes(title_text="Interest Rate %", secondary_y=True)
                 fig_macro.update_layout(
                     title='Macroeconomic Indicators: Inflation & Interest Rates with Lagged Features',
                     height=400,
