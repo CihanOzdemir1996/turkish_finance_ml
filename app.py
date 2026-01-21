@@ -349,15 +349,49 @@ def load_price_data():
     return None
 
 @st.cache_data
-def get_feature_importance(_model_dict, feature_names):
-    """Get feature importance from the model"""
+def get_feature_importance(_model_dict, feature_names, X_test=None, y_test=None):
+    """Get feature importance from the model with LSTM support and XGBoost fallback"""
     model = _model_dict['model']
     model_type = _model_dict.get('model_type', 'xgboost')
     
     if model_type == 'lstm':
-        # LSTM doesn't have direct feature importance, return None
+        # For LSTM, try to use XGBoost as a proxy for feature importance
+        # This gives us interpretable feature importance for the same features
+        try:
+            project_root = Path(__file__).parent
+            models_dir = project_root / "models"
+            
+            # Try to load XGBoost model trained on same features
+            xgb_path = models_dir / "xgboost_model.pkl"
+            if xgb_path.exists() and X_test is not None and y_test is not None:
+                xgb_model = joblib.load(str(xgb_path))
+                if hasattr(xgb_model, 'feature_importances_'):
+                    # Ensure feature count matches
+                    if len(xgb_model.feature_importances_) == len(feature_names):
+                        importance_df = pd.DataFrame({
+                            'Feature': feature_names,
+                            'Importance': xgb_model.feature_importances_
+                        }).sort_values('Importance', ascending=False)
+                        return importance_df
+            
+            # Fallback: Try best_model or random_forest
+            for fallback_path in [models_dir / "best_model.pkl", models_dir / "random_forest_model.pkl"]:
+                if fallback_path.exists() and X_test is not None and y_test is not None:
+                    fallback_model = joblib.load(str(fallback_path))
+                    if hasattr(fallback_model, 'feature_importances_'):
+                        if len(fallback_model.feature_importances_) == len(feature_names):
+                            importance_df = pd.DataFrame({
+                                'Feature': feature_names,
+                                'Importance': fallback_model.feature_importances_
+                            }).sort_values('Importance', ascending=False)
+                            return importance_df
+        except Exception as e:
+            st.warning(f"Could not load fallback model for feature importance: {str(e)}")
+        
+        # If all else fails, return None
         return None
     
+    # For tree-based models (XGBoost, Random Forest)
     if hasattr(model, 'feature_importances_'):
         importance_df = pd.DataFrame({
             'Feature': feature_names,
@@ -561,6 +595,18 @@ def main():
     # Load data and make prediction
     try:
         latest_features, X_test, y_test_df, full_features = load_latest_data()
+        
+        # Get feature names for importance analysis (prioritize v3.0 features from full_features)
+        if full_features is not None:
+            exclude_cols = ['Date']
+            if 'Ticker' in full_features.columns:
+                exclude_cols.append('Ticker')
+            target_cols = [col for col in full_features.columns if col.startswith('Target_')]
+            feature_names = [col for col in full_features.columns if col not in exclude_cols + target_cols]
+        else:
+            # Fallback to X_test columns
+            feature_names = list(X_test.columns) if X_test is not None else []
+        
         prediction, prob_up, prob_down, confidence = make_prediction(model_dict, latest_features, full_features)
         
         # Determine confidence level
@@ -632,27 +678,77 @@ def main():
         # Feature Importance Section
         st.header("🏆 Feature Importance Analysis")
         
-        # Get feature names
-        feature_names = X_test.columns.tolist()
-        importance_df = get_feature_importance(model_dict, feature_names)
-        
-        if importance_df is not None:
-            # Display top 10 features
-            st.subheader("Top 10 Most Important Features")
+        if len(feature_names) > 0:
+            st.markdown(f"**Analyzing {len(feature_names)} features** (including USD/TRY and macro lags for v3.0-Alpha)")
             
-            # Create visualization
-            fig = plot_feature_importance(importance_df, top_n=10)
-            st.pyplot(fig)
+            # Get feature importance with fallback support
+            importance_df = get_feature_importance(
+                model_dict, 
+                feature_names, 
+                X_test=X_test.values if X_test is not None else None,
+                y_test=y_test_df['Target_Direction'].values if y_test_df is not None and 'Target_Direction' in y_test_df.columns else None
+            )
             
-            # Display as table
-            with st.expander("📋 View All Feature Importances", expanded=False):
-                st.dataframe(
-                    importance_df.style.background_gradient(cmap='viridis', subset=['Importance']),
-                    use_container_width=True,
-                    height=400
-                )
+            if importance_df is not None:
+                # Show which model was used for importance
+                if model_dict.get('model_type') == 'lstm':
+                    st.info("ℹ️ **LSTM models don't have direct feature importance.** Showing XGBoost feature importance as a proxy (trained on same features).")
+                
+                # Highlight USD/TRY and macro features in top 20
+                top_20 = importance_df.head(20)
+                usd_features = [f for f in top_20['Feature'] if 'USD' in f]
+                macro_features = [f for f in top_20['Feature'] if any(x in f for x in ['Inflation', 'Interest', 'Lag'])]
+                
+                if usd_features or macro_features:
+                    st.markdown("**🌟 Key Features in Top 20:**")
+                    cols = st.columns(2)
+                    with cols[0]:
+                        if usd_features:
+                            st.success(f"💵 **USD/TRY Features**: {', '.join(usd_features[:3])}")
+                    with cols[1]:
+                        if macro_features:
+                            st.success(f"🌍 **Macro Features**: {', '.join(macro_features[:3])}")
+                
+                # Display top 10 features
+                st.subheader("📊 Top 10 Most Important Features")
+                
+                # Create visualization
+                fig = plot_feature_importance(importance_df, top_n=10)
+                st.pyplot(fig)
+                
+                # Display as table
+                with st.expander("📋 View All Feature Importances", expanded=False):
+                    st.dataframe(
+                        importance_df.style.background_gradient(cmap='viridis', subset=['Importance']),
+                        use_container_width=True,
+                        height=400
+                    )
+            else:
+                st.warning("⚠️ Feature importance not available for this model type.")
+                st.info("💡 **Tip**: For LSTM models, feature importance is calculated using XGBoost as a proxy. If no tree-based model is available, feature importance cannot be displayed.")
+                
+                # Show feature count and categories
+                st.markdown("**📊 Feature Breakdown:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Features", len(feature_names))
+                with col2:
+                    usd_count = sum(1 for f in feature_names if 'USD' in f)
+                    st.metric("USD/TRY Features", usd_count)
+                with col3:
+                    macro_count = sum(1 for f in feature_names if any(x in f for x in ['Inflation', 'Interest']))
+                    st.metric("Macro Features", macro_count)
         else:
-            st.warning("Feature importance not available for this model type.")
+            st.warning("⚠️ Feature names not available. Cannot display feature importance.")
+            
+            # Try to show feature count at least
+            st.markdown(f"**Total Features**: {len(feature_names)}")
+            if any('USD' in f for f in feature_names):
+                usd_count = sum(1 for f in feature_names if 'USD' in f)
+                st.markdown(f"**USD/TRY Features**: {usd_count}")
+            if any('Inflation' in f or 'Interest' in f for f in feature_names):
+                macro_count = sum(1 for f in feature_names if 'Inflation' in f or 'Interest' in f)
+                st.markdown(f"**Macro Features**: {macro_count}")
         
         # Try to load saved chart
         chart_path = load_feature_importance_chart()
