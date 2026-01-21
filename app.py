@@ -355,17 +355,25 @@ def load_feature_importance_proxy():
         project_root = Path(__file__).parent
         models_dir = project_root / "models"
         
+        # Use absolute paths with str() for cross-platform compatibility
         proxy_model_path = models_dir / "feature_importance_proxy.pkl"
         feature_names_path = models_dir / "feature_names_v3.pkl"
         
-        if proxy_model_path.exists() and feature_names_path.exists():
-            proxy_model = joblib.load(str(proxy_model_path))
-            feature_names = joblib.load(str(feature_names_path))
-            return proxy_model, feature_names
+        # Check if files exist
+        if not proxy_model_path.exists():
+            return None, None
+        
+        if not feature_names_path.exists():
+            return None, None
+        
+        # Load files
+        proxy_model = joblib.load(str(proxy_model_path))
+        feature_names = joblib.load(str(feature_names_path))
+        
+        return proxy_model, feature_names
     except Exception as e:
         # Silently fail - will fallback to other methods
-        pass
-    return None, None
+        return None, None
 
 @st.cache_data
 def get_feature_importance(_model_dict, feature_names, X_test=None, y_test=None):
