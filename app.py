@@ -945,9 +945,9 @@ def main():
                 # Dual-axis line chart - ensure we're using Plotly
                 try:
                     fig_macro = make_subplots(specs=[[{"secondary_y": True}]])
-                
-                # Primary axis: Inflation
-                if 'Inflation_TUFE' in recent_macro.columns:
+                    
+                    # Primary axis: Inflation
+                    if 'Inflation_TUFE' in recent_macro.columns:
                     fig_macro.add_trace(
                         go.Scatter(
                             x=recent_macro['Date'],
