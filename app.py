@@ -289,28 +289,30 @@ def load_latest_data():
 
 @st.cache_data
 def load_macro_data():
-    """Load macroeconomic data for visualization (prioritize v3.0) with error handling"""
+    """Load macro data for USD/TRY visualization (bist_macro_merged_v3.csv or fallback to bist_macro_merged.csv). Applies .ffill() for missing values."""
     try:
         project_root = Path(__file__).parent
         data_processed_dir = project_root / "data" / "processed"
-        
-        # Try v3.0 first (includes USD/TRY)
         macro_file_v3 = data_processed_dir / "bist_macro_merged_v3.csv"
+        macro_file_v2 = data_processed_dir / "bist_macro_merged.csv"
+
         if macro_file_v3.exists():
             macro_df = pd.read_csv(str(macro_file_v3))
-            macro_df['Date'] = pd.to_datetime(macro_df['Date'])
-            macro_df = macro_df.sort_values('Date').reset_index(drop=True)
-            return macro_df
-        
-        # Fallback to v2.0
-        macro_file = data_processed_dir / "bist_macro_merged.csv"
-        if macro_file.exists():
-            macro_df = pd.read_csv(str(macro_file))
-            macro_df['Date'] = pd.to_datetime(macro_df['Date'])
-            macro_df = macro_df.sort_values('Date').reset_index(drop=True)
-            return macro_df
+        elif macro_file_v2.exists():
+            macro_df = pd.read_csv(str(macro_file_v2))
+        else:
+            return None
+
+        macro_df['Date'] = pd.to_datetime(macro_df['Date'])
+        macro_df = macro_df.sort_values('Date').reset_index(drop=True)
+        numeric_cols = macro_df.select_dtypes(include=[np.number]).columns.tolist()
+        if numeric_cols:
+            macro_df[numeric_cols] = macro_df[numeric_cols].ffill().bfill()
+        if macro_df.empty:
+            return None
+        return macro_df
     except Exception as e:
-        st.warning(f"Could not load macroeconomic data: {str(e)}")
+        st.warning(f"Could not load macro data: {str(e)}")
     return None
 
 @st.cache_data
@@ -681,141 +683,7 @@ def main():
         
         st.markdown("---")
         
-        # 2. Macroeconomic Context
-        st.header("🌍 Macroeconomic Context")
-        st.markdown("### Inflation & Interest Rate Trends with Lagged Features")
-        
-        macro_df = load_macro_data()
-        if macro_df is not None:
-            # Get last 12 months of data
-            recent_macro = macro_df.tail(365).copy()  # Last year
-            
-            if PLOTLY_AVAILABLE:
-                # Dual-axis line chart - ensure we're using Plotly
-                try:
-                    fig_macro = make_subplots(specs=[[{"secondary_y": True}]])
-                    
-                    # Primary axis: Inflation
-                    if 'Inflation_TUFE' in recent_macro.columns:
-                        fig_macro.add_trace(
-                            go.Scatter(
-                                x=recent_macro['Date'],
-                                y=recent_macro['Inflation_TUFE'],
-                                name='Inflation (TUFE)',
-                                line=dict(color='#FF6B6B', width=2),
-                                mode='lines+markers'
-                            ),
-                            secondary_y=False
-                        )
-                    
-                    # Lagged inflation features
-                    if 'Inflation_TUFE_Lag_1M' in recent_macro.columns:
-                        fig_macro.add_trace(
-                            go.Scatter(
-                                x=recent_macro['Date'],
-                                y=recent_macro['Inflation_TUFE_Lag_1M'],
-                                name='Inflation Lag 1M',
-                                line=dict(color='#FF6B6B', width=1, dash='dash'),
-                                opacity=0.6
-                            ),
-                            secondary_y=False
-                        )
-                    
-                    if 'Inflation_TUFE_Lag_3M' in recent_macro.columns:
-                        fig_macro.add_trace(
-                            go.Scatter(
-                                x=recent_macro['Date'],
-                                y=recent_macro['Inflation_TUFE_Lag_3M'],
-                                name='Inflation Lag 3M',
-                                line=dict(color='#FF6B6B', width=1, dash='dot'),
-                                opacity=0.4
-                            ),
-                            secondary_y=False
-                        )
-                
-                    # Secondary axis: Interest Rate
-                    if 'Interest_Rate' in recent_macro.columns:
-                        fig_macro.add_trace(
-                            go.Scatter(
-                                x=recent_macro['Date'],
-                                y=recent_macro['Interest_Rate'],
-                                name='Interest Rate',
-                                line=dict(color='#4ECDC4', width=2),
-                                mode='lines+markers'
-                            ),
-                            secondary_y=True
-                        )
-                    
-                    # Lagged interest rate features
-                    if 'Interest_Rate_Lag_1M' in recent_macro.columns:
-                        fig_macro.add_trace(
-                            go.Scatter(
-                                x=recent_macro['Date'],
-                                y=recent_macro['Interest_Rate_Lag_1M'],
-                                name='Interest Rate Lag 1M',
-                                line=dict(color='#4ECDC4', width=1, dash='dash'),
-                                opacity=0.6
-                            ),
-                            secondary_y=True
-                        )
-                    
-                    if 'Interest_Rate_Lag_3M' in recent_macro.columns:
-                        fig_macro.add_trace(
-                            go.Scatter(
-                                x=recent_macro['Date'],
-                                y=recent_macro['Interest_Rate_Lag_3M'],
-                                name='Interest Rate Lag 3M',
-                                line=dict(color='#4ECDC4', width=1, dash='dot'),
-                                opacity=0.4
-                            ),
-                            secondary_y=True
-                        )
-                
-                    # Update axes - use correct Plotly syntax (update_xaxes, not update_xaxis)
-                    fig_macro.update_xaxes(title_text="Date")
-                    fig_macro.update_yaxes(title_text="Inflation (TUFE) %", secondary_y=False)
-                    fig_macro.update_yaxes(title_text="Interest Rate %", secondary_y=True)
-                    fig_macro.update_layout(
-                        title='Macroeconomic Indicators: Inflation & Interest Rates with Lagged Features',
-                        height=400,
-                        hovermode='x unified',
-                        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)'
-                    )
-                    
-                    st.plotly_chart(fig_macro, use_container_width=True)
-                except Exception as e:
-                    st.error(f"Error creating macroeconomic chart: {str(e)}")
-                    st.info("Falling back to data table view.")
-                    st.dataframe(recent_macro.tail(20), use_container_width=True)
-                
-                # Latest values table
-                st.markdown("#### Latest Macroeconomic Values")
-                latest_macro_cols = ['Date']
-                if 'Inflation_TUFE' in recent_macro.columns:
-                    latest_macro_cols.append('Inflation_TUFE')
-                if 'Interest_Rate' in recent_macro.columns:
-                    latest_macro_cols.append('Interest_Rate')
-                if 'Inflation_TUFE_Lag_1M' in recent_macro.columns:
-                    latest_macro_cols.extend(['Inflation_TUFE_Lag_1M', 'Inflation_TUFE_Lag_3M'])
-                if 'Interest_Rate_Lag_1M' in recent_macro.columns:
-                    latest_macro_cols.extend(['Interest_Rate_Lag_1M', 'Interest_Rate_Lag_3M'])
-                
-                latest_macro_table = recent_macro[latest_macro_cols].tail(10).copy()
-                latest_macro_table['Date'] = latest_macro_table['Date'].dt.strftime('%Y-%m-%d')
-                st.dataframe(latest_macro_table.style.format({
-                    col: '{:.2f}' for col in latest_macro_table.columns if col != 'Date'
-                }), use_container_width=True, hide_index=True)
-            else:
-                st.info("Plotly not available. Showing data table instead.")
-                st.dataframe(recent_macro.tail(20), use_container_width=True)
-        else:
-            st.warning("Macroeconomic data not available. Run notebook 06_macro_data_integration.ipynb to generate this data.")
-        
-        st.markdown("---")
-        
-        # 2.5. USD/TRY Exchange Rate Trend (NEW in v3.0)
+        # 2. USD/TRY Exchange Rate Trend (v3.0)
         st.header("💵 USD/TRY Exchange Rate Trend (v3.0-Alpha)")
         st.markdown("### Currency Impact on BIST-100")
         
